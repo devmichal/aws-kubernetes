@@ -1,0 +1,78 @@
+---
+- name: Install and configure MySQL
+  hosts: db_server
+  become: yes
+  vars_files:
+    - ../vars/vault.yml
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install MySQL server
+      apt:
+        name: mysql-server
+        state: present
+
+    - name: Start and enable MySQL service
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Install PyMySQL
+      apt:
+        name: python3-pymysql
+        state: present
+
+    - name: Create MySQL user accessible from any host
+      mysql_user:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: "{{ db_user }}"
+        host: '%'
+        password: "{{ db_user_password }}"
+        priv: 'mydatabase.*:ALL'
+        state: present
+        login_user: root
+        login_password: "{{ db_root_password }}"
+
+    - name: Ensure MySQL root password is set
+      mysql_user:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        name: root
+        host: localhost
+        password: "{{ db_root_password }}"
+        priv: '*.*:ALL,GRANT'
+        login_user: root
+        login_password: "{{ db_root_password }}"
+        state: present
+
+    - name: Create MySQL user
+      mysql_user:
+        name: myuser
+        password: "{{ db_user_password }}"
+        host: "%"
+        priv: 'mydatabase.*:ALL'
+        state: present
+        login_user: root
+        login_password: "{{ db_root_password }}"
+
+    - name: Dump external database
+      command: >
+          mysqldump -h {{ external_db_host }} -u {{ external_db_user }} -p{{ external_db_password }}
+          {{ external_db_name }} > /tmp/{{ external_db_name }}.sql
+      args:
+          creates: /tmp/{{ external_db_name }}.sql
+
+    - name: Copy SQL dump to MySQL server
+      fetch:
+          src: /tmp/{{ external_db_name }}.sql
+          dest: /tmp/{{ external_db_name }}.sql
+          flat: yes
+
+    - name: Import SQL dump into new MySQL database
+      command: >
+          mysql -h localhost -u root -p{{ db_root_password }} mydatabase < /tmp/{{ external_db_name }}.sql
+      args:
+          removes: /tmp/{{ external_db_name }}.sql

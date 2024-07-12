@@ -1,0 +1,5 @@
+../.idea
+hosts
+ansible.pem
+k3s_config.yaml
+k3s_config/
