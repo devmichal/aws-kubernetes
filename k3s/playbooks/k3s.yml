@@ -46,3 +46,80 @@
         msg: "{{ k3s_config.content | b64decode }}"
       delegate_to: master_node_hostname
       when: "'master' in group_names"
+
+    - name: Ensure Helm is installed
+      command: /bin/bash -c "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+      args:
+        creates: /usr/local/bin/helm
+      register: helm_install
+      when: "'master' in group_names"
+      delegate_to: master_node_hostname
+
+    - name: Check if Helm is installed
+      command: helm version
+      register: helm_version
+      failed_when: helm_version.rc != 0
+      changed_when: false
+      when: "'master' in group_names"
+      delegate_to: master_node_hostname
+
+    - name: Update Helm repositories
+      command: helm repo update
+      when: helm_install.changed
+      delegate_to: master_node_hostname
+
+    - name: Fetch kubeconfig from master node
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /tmp/k3s.yaml
+        flat: yes
+      delegate_to: master_node_hostname
+      when: "'master' in group_names"
+
+    - name: Copy kubeconfig to local kubeconfig
+      copy:
+        src: /tmp/k3s.yaml
+        dest: ~/.kube/config
+      when: "'master' in group_names"
+
+    - name: Ensure proper permissions for kubeconfig
+      file:
+        path: ~/.kube/config
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0644'
+      when: "'master' in group_names"
+
+    - name: Check if namespace monitoring exists
+      command: kubectl get namespace monitoring
+      ignore_errors: yes
+      register: namespace_check_result
+      when: "'master' in group_names"
+      delegate_to: master_node_hostname
+
+    - name: Create namespace monitoring
+      command: kubectl create namespace monitoring
+      failed_when: false
+      changed_when: false
+      ignore_errors: true
+      when: namespace_check_result.rc != 0
+      become: yes
+      delegate_to: master_node_hostname
+      become_user: root
+
+    - name: Add Prometheus Helm repository
+      shell: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      when: helm_install.changed
+      delegate_to: master_node_hostname
+      environment:
+        KUBECONFIG: ~/.kube/config
+
+    - name: Install Prometheus
+      shell: helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring
+      args:
+        executable: /bin/bash
+      register: prometheus_install
+      when: "'master' in group_names"
+      delegate_to: master_node_hostname
+      environment:
+        KUBECONFIG: ~/.kube/config
