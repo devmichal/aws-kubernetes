@@ -1,0 +1,49 @@
+---
+- name: K3s Cluster Setup
+  hosts: master_node_hostname
+  become: yes
+  become_method: sudo
+
+  vars:
+    helm_config_role: "../conf/helm-cluster-role-binding.yaml"
+    helm_account: "../conf/service-account.yaml"
+
+  tasks:
+    - name: Ensure Helm is installed
+      command: /bin/bash -c "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+      args:
+        creates: /usr/local/bin/helm
+      register: helm_install
+
+    - name: Check if Helm is installed
+      command: helm version
+      register: helm_version
+      failed_when: helm_version.rc != 0
+      changed_when: false
+
+    - name: Helm add access
+      become_user: root
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      command: |
+        chmod 644 /etc/rancher/k3s/k3s.yaml
+
+    - name: Create value file for helm config role
+      template:
+        src: "{{ helm_config_role }}"
+        dest: /tmp/helm-cluster-role-binding.yaml
+
+    - name: Create value file for helm account
+      template:
+        src: "{{ helm_account }}"
+        dest: /tmp/service-account.yaml
+
+    - name: Create ClusterRoleBinding for Helm
+      command: kubectl apply -f /tmp/helm-cluster-role-binding.yaml
+      become: true
+      become_user: root
+
+    - name: Create ServiceAccount for Helm
+      command: kubectl apply -f /tmp/service-account.yaml
+      become: true
+      become_user: root

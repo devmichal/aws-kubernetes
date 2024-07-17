@@ -1,0 +1,37 @@
+---
+- name: K3s Cluster Setup
+  hosts: master_node_hostname
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Check if namespace monitoring exists
+      command: kubectl get namespace monitoring
+      ignore_errors: yes
+      register: namespace_check_result
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create namespace monitoring
+      command: kubectl create namespace monitoring
+      failed_when: false
+      changed_when: false
+      ignore_errors: true
+      become: yes
+      become_user: root
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Add Prometheus Helm repository
+      shell: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      become_user: root
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Install Prometheus
+      shell: helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring
+      args:
+        executable: /bin/bash
+      register: prometheus_install
+      become_user: root
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml

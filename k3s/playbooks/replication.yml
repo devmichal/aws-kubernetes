@@ -1,0 +1,48 @@
+---
+- name: K3s Cluster Setup
+  hosts: all
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Install K3s on Master Node
+      shell: |
+        if ! command -v k3s &> /dev/null; then
+          curl -sfL https://get.k3s.io | sh -
+        fi
+      when: "'master' in group_names"
+
+    - name: Get K3s token
+      command: cat /var/lib/rancher/k3s/server/node-token
+      register: k3s_token
+      when: "'master' in group_names"
+      delegate_to: master_node_hostname
+
+    - name: Set fact for K3s token
+      set_fact:
+        k3s_token: "{{ k3s_token.stdout }}"
+      when: "'master' in group_names"
+
+    - name: Join Worker Node to K3s Cluster
+      shell: |
+        curl -sfL https://get.k3s.io | K3S_URL=https://{{ hostvars['master_node_hostname'].ansible_default_ipv4.address }}:6443 K3S_TOKEN={{ hostvars['master_node_hostname'].k3s_token }} sh -
+      when: "'worker' in group_names"
+
+    - name: Slurp K3s config file
+      slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: k3s_config
+      delegate_to: master_node_hostname
+      when: "'master' in group_names"
+
+    - name: Decode and save the K3s config content
+      copy:
+        content: "{{ k3s_config.content | b64decode }}"
+        dest: ./k3s_config.yaml
+      delegate_to: master_node_hostname
+      when: "'master' in group_names"
+
+    - name: Display the K3s config content
+      debug:
+        msg: "{{ k3s_config.content | b64decode | from_yaml}}"
+      delegate_to: master_node_hostname
+      when: "'master' in group_names"
